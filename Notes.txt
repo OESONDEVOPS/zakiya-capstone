@@ -1,0 +1,5 @@
+docker build -t capstone_img -f docker/Dockerfile .
+ps aux | grep nginx
+docker run -it --rm -p 8080:80 --name capstone capstone_img
+
+kubectl create configmap nginx-config --from-file=my_app/nginx.conf --dry-run=client -o yaml > k8s/configmap.yaml
