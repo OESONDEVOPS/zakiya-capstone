@@ -20,8 +20,8 @@ COPY ./my_app/nginx.conf /etc/nginx/nginx.conf
 
 # Ensure appuser owns the content directory
 RUN chown -R appuser:appgroup /usr/share/nginx/html
-RUN rm /etc/nginx/conf.d/default.conf
-COPY ./my_app/nginx.conf /etc/nginx/nginx.conf
+# RUN rm /etc/nginx/conf.d/default.conf
+# COPY ./my_app/nginx.conf /etc/nginx/nginx.conf
 EXPOSE 8080
 USER appuser
 # Command to run Nginx when the container starts

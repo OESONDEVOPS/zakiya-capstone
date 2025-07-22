@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: my_app-config
+  name: myapp-config
   namespace: microservices
 data:
   # The key should be the filename, and the value is the content of nginx.conf
