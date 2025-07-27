@@ -53,6 +53,17 @@ pipeline {
                 sh 'docker save myapp_img -o myapp_img.tar'
             }
         }
+        stage('Push to Docker Hub') {
+            steps {
+                // Log in to Docker Hub using the credentials stored in Jenkins
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                }
+                // Push the Docker image to Docker Hub
+                sh 'docker tag myapp_img zakif/myapp_img:latest' // Replace with your Docker Hub username
+                sh 'docker push zakif/myapp_img:latest' // Replace with your Docker Hub username
+            }
+        }
         
 }
 
