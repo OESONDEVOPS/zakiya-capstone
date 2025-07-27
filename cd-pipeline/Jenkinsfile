@@ -43,7 +43,7 @@ pipeline {
                 echo 'INSIDE DOCKER BUILD'
                 sh 'pwd'
                 sh 'ls /var/jenkins_home/workspace/'
-                sh 'docker build -t myapp_img  -f /var/jenkins_home/workspace/new_capstone/my_app/dockerDockerfile .'
+                sh 'docker build -t myapp_img  -f /var/jenkins_home/workspace/new_capstone/my_app/docker/Dockerfile .'
             }
         }
         stage('Save Docker Image') {
