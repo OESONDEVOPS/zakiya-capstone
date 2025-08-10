@@ -1,84 +1,72 @@
 pipeline {
-
-    environment {
-        AWS_ACCESS_KEY_ID = credentials('AWS_ACCESS_KEY_ID') // Use the credentials ID you set in Jenkins
-        AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY') // Use the credentials ID you set in Jenkins
-    }
     agent any
-    
-
+  
     stages {
-        stage('Hello') {
+        stage('Provision Infrastructure') {
             steps {
-                echo 'my_app'
-            }
-        }
- 
-    
-        stage('Clone Repo') {
-            steps {
-                // Clone the source code from the Git repository
-                git url: 'https://github.com/OESONDEVOPS/zakiya-capstone.git', branch: 'main' 
-            }
-        }
-
-        stage('Verify Cloned Files') {
-                steps {
-                    sh 'ls -la'       // Check for 'docker' or 'Docker' - added -a for hidden files
-                    sh 'ls -R'        // List contents of directories recursively
-                    sh 'pwd'          // Print current working directory
+                dir('infra/terraform') {
+                    sh 'terraform init'
+                    sh 'terraform apply -auto-approve'
                 }
-            }
-            stage('Test Docker Access') {
-            steps {
-                // Verify that the Jenkins agent has the docker command available
-                sh 'docker --version'
-            }
-        }
-        stage('Build Docker Image') {
-            steps {
-                // Build the Docker image using the Dockerfile in the 'Docker' directory
-                // -t tags the image, -f specifies the Dockerfile path, . is the build context
-                // CORRECTED PATH based on the provided directory structure
-                echo 'INSIDE DOCKER BUILD'
-                sh 'pwd'
-                sh 'ls /var/jenkins_home/workspace/'
-                sh 'docker build -t myapp_img  -f /var/jenkins_home/workspace/new_capstone/docker/Dockerfile .'
-            }
-        }
-        stage('Save Docker Image') {
-            steps {
-                // Save the built Docker image as a tar archive
-                // -o specifies the output file name
-                sh 'docker save myapp_img -o myapp_img.tar'
-            }
-        }
-        stage('Push to Docker Hub') {
-            steps {
-                // Log in to Docker Hub using the credentials stored in Jenkins
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
-                }
-                // Push the Docker image to Docker Hub
-                sh 'docker tag myapp_img zakif/myapp_img:latest' // Replace with your Docker Hub username
-                sh 'docker push zakif/myapp_img:latest' // Replace with your Docker Hub username
             }
         }
         
-}
-
+        stage('Configure Hosts with Ansible') {
+            steps {
+                script {
+                    def jenkinsIP = sh(script: 'terraform -chdir=infra/terraform output -raw jenkins_public_ip', returnStdout: true).trim()
+                    def k8sNodes = sh(script: 'terraform -chdir=infra/terraform output -json k8s_node_ips | jq -r .[]', returnStdout: true).trim().split('\n')
+                    
+                    // Create inventory file
+                    writeFile file: 'ansible/inventory.ini', text: """
+                    [jenkins_host]
+                    ${jenkinsIP}
+                    
+                    [k8s_nodes]
+                    ${k8sNodes[0]}
+                    ${k8sNodes[1]}
+                    """
+                    
+                    // Run Ansible playbooks
+                    dir('ansible/playbooks') {
+                        sh 'ansible-playbook -i ../inventory.ini install_jenkins.yml'
+                        sh 'ansible-playbook -i ../inventory.ini install_k8s.yml'
+                    }
+                }
+            }
+        }
+        
+        stage('Build and Deploy Application') {
+            steps {
+                build job: 'microservice-pipeline', wait: false
+            }
+        }
+        
+        stage('Setup Monitoring') {
+            steps {
+                script {
+                    // Get kubeconfig from master node
+                    def k8sMaster = sh(script: 'terraform -chdir=infra/terraform output -json k8s_node_ips | jq -r .[0]', returnStdout: true).trim()
+                    sh "scp -o StrictHostKeyChecking=no ubuntu@${k8sMaster}:~/.kube/config ./kubeconfig"
+                    
+                    // Install monitoring stack
+                    withKubeConfig([credentialsId: 'kubeconfig', serverUrl: '', contextName: '']) {
+                        sh 'kubectl create namespace monitoring || true'
+                        sh 'helm repo add prometheus-community https://prometheus-community.github.io/helm-charts'
+                        sh 'helm repo add grafana https://grafana.github.io/helm-charts'
+                        sh 'helm repo update'
+                        sh 'helm upgrade --install prometheus prometheus-community/prometheus --namespace monitoring'
+                        sh 'helm upgrade --install grafana grafana/grafana --namespace monitoring --set adminPassword=admin --set service.type=NodePort --set service.nodePort=30000'
+                        sh 'kubectl apply -f monitoring/service-monitor.yaml'
+                    }
+                }
+            }
+        }
+    }
     
-
     post {
         always {
-            echo 'This will always run after the stages.'
-        }
-        success {
-            echo 'This will run only if the pipeline is successful.'
-        }
-        failure {
-            echo 'This will run only if the pipeline fails.'
+            cleanWs()
         }
     }
 }
-   

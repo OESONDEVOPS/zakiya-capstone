@@ -1,0 +1,60 @@
+---
+- name: Install Kubernetes
+  hosts: k8s_nodes
+  become: yes
+  tasks:
+    - name: Disable swap
+      shell: |
+        swapoff -a
+        sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+        
+    - name: Install dependencies
+      apt:
+        name: ["apt-transport-https", "ca-certificates", "curl", "gnupg-agent", "software-properties-common"]
+        state: present
+        
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+        
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable"
+        state: present
+        
+    - name: Install Docker
+      apt:
+        name: ["docker-ce", "docker-ce-cli", "containerd.io"]
+        state: present
+        
+    - name: Add Kubernetes GPG key
+      apt_key:
+        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+        state: present
+        
+    - name: Add Kubernetes repository
+      apt_repository:
+        repo: "deb https://apt.kubernetes.io/ kubernetes-xenial main"
+        state: present
+        
+    - name: Install Kubernetes components
+      apt:
+        name: ["kubelet", "kubeadm", "kubectl"]
+        state: present
+        update_cache: yes
+        
+    - name: Initialize Kubernetes cluster (on master only)
+      command: kubeadm init --pod-network-cidr=10.244.0.0/16
+      when: inventory_hostname == "k8s_node1"
+      
+    - name: Set up kubeconfig for regular user (on master only)
+      shell: |
+        mkdir -p $HOME/.kube
+        sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+        sudo chown $(id -u):$(id -g) $HOME/.kube/config
+      when: inventory_hostname == "k8s_node1"
+      
+    - name: Install network plugin (on master only)
+      command: kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+      when: inventory_hostname == "k8s_node1"
